@@ -134,6 +134,53 @@ def team_shot_summary(shots_df, team_col=None, xg_col="xg", xgot_col="xgot"):
     return summary
 
 
+def pivot_long_general_stats(general_stats_df, name_col="name", team_col="competitorId",
+                              value_col="value", major_only=True):
+    """
+    365Scores devuelve get_match_general_stats en formato "largo": una fila por
+    cada (estadística, equipo), con columnas id/name/competitorId/isMajor/value.
+    Esto lo pivotea a {nombre_stat: (valor_equipo_1, valor_equipo_2)}, limpiando
+    valores con "%" a número.
+
+    major_only=True: solo usa las filas marcadas isMajor (las más relevantes,
+    como en el panel "Match Stats" del PDF de referencia) si esa columna existe.
+    """
+    df = general_stats_df.copy()
+    cols = {c.lower(): c for c in df.columns}
+    name_col = cols.get(name_col.lower(), df.columns[0])
+    team_col = cols.get(team_col.lower())
+    value_col = cols.get(value_col.lower(), df.columns[-1])
+    major_col = cols.get("ismajor")
+
+    if team_col is None:
+        raise KeyError(f"No encontré columna de equipo tipo 'competitorId'. Columnas: {list(df.columns)}")
+
+    if major_only and major_col and df[major_col].notna().any():
+        df = df[df[major_col].fillna(False).astype(bool)]
+
+    def clean_value(v):
+        if isinstance(v, str):
+            v = v.replace("%", "").replace(",", ".").strip()
+        try:
+            return float(v)
+        except (TypeError, ValueError):
+            return v
+
+    df["_value_clean"] = df[value_col].map(clean_value)
+
+    team_ids = sorted(df[team_col].dropna().unique(), key=str)
+    stats = {}
+    for stat_name, sub in df.groupby(name_col):
+        vals = []
+        for tid in team_ids[:2]:
+            row = sub[sub[team_col] == tid]
+            vals.append(row["_value_clean"].iloc[0] if not row.empty else None)
+        if len(vals) == 2:
+            stats[stat_name] = tuple(vals)
+
+    return stats
+
+
 def convert_goalmouth_to_plot(df, y_col="goalMouthY", z_col="goalMouthZ"):
     """
     Convierte las coordenadas crudas de arco (goalMouthY/Z, escala 0-100 aprox.

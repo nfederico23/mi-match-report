@@ -36,7 +36,7 @@ try:
 except ImportError:
     Pitch = None
 
-from shot_utils import normalize_shotmap, team_shot_summary, convert_goalmouth_to_plot
+from shot_utils import normalize_shotmap, team_shot_summary, convert_goalmouth_to_plot, pivot_long_general_stats
 from player_report import build_player_figure
 
 
@@ -379,20 +379,15 @@ def build_365_report(match_url):
     else:
         ax_summary.text(0.5, 0.5, "Sin datos", ha="center", color="white", transform=ax_summary.transAxes)
 
-    # Match stats (official-like) si vienen en general_stats
+    # Match stats (official-like) — 365Scores devuelve esto en formato largo
+    # (una fila por estadística+equipo), lo pivoteamos con pivot_long_general_stats
     ax_stats = fig.add_subplot(gs[1, 0:2])
     ax_stats.set_facecolor("#0e1117")
     if general_stats is not None:
         try:
-            cols = {c.lower(): c for c in general_stats.columns}
-            stat_col = next((cols[c] for c in ["stat", "title", "statname"] if c in cols), general_stats.columns[0])
-            home_col = next((cols[c] for c in ["home", "homevalue"] if c in cols), general_stats.columns[1])
-            away_col = next((cols[c] for c in ["away", "awayvalue"] if c in cols), general_stats.columns[2])
-            stats_dict = {
-                str(row[stat_col]): (row[home_col], row[away_col])
-                for _, row in general_stats.iterrows()
-                if str(row[home_col]).replace(".", "", 1).isdigit()
-            }
+            stats_dict = pivot_long_general_stats(general_stats)
+            stats_dict = {k: v for k, v in stats_dict.items()
+                          if isinstance(v[0], (int, float)) and isinstance(v[1], (int, float))}
             team_stats_bar(ax_stats, stats_dict if stats_dict else {"Sin datos": (0, 0)})
         except Exception as e:
             st.warning(f"No se pudo armar match stats: {e}")
