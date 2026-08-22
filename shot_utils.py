@@ -42,11 +42,23 @@ def normalize_shotmap(shots_df, outcome_col="shot_outcome", team_col="teamName")
     """
     df = shots_df.copy()
 
-    if outcome_col not in df.columns:
+    # Resolvemos los nombres de columna sin importar mayúsculas/minúsculas —
+    # 365Scores puede devolver "teamName", "team_name", "TeamName", etc.
+    cols_map = {c.lower(): c for c in df.columns}
+    resolved_outcome = cols_map.get(outcome_col.lower())
+    resolved_team = cols_map.get(team_col.lower())
+
+    if resolved_outcome is None:
         raise KeyError(
             f"No encontré la columna '{outcome_col}' en el shotmap. "
             f"Columnas disponibles: {list(df.columns)}"
         )
+    if resolved_team is None:
+        raise KeyError(
+            f"No encontré la columna '{team_col}' en el shotmap. "
+            f"Columnas disponibles: {list(df.columns)}"
+        )
+    outcome_col, team_col = resolved_outcome, resolved_team
 
     df["shotType"] = df[outcome_col].map(OUTCOME_TO_SHOTTYPE)
     df["type"] = df["shotType"].map(SHOTTYPE_TO_OPTA)
