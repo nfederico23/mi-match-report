@@ -1,0 +1,6 @@
+streamlit>=1.35
+LanusStats>=0.2
+mplsoccer>=1.3.0
+matplotlib>=3.8
+pandas>=2.0
+numpy>=1.26
