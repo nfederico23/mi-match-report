@@ -126,14 +126,25 @@ def plot_shotmap(ax, shotmap_df, team_col_candidates, home_name, away_name):
         ax.set_title("No se detectaron coordenadas de tiro", color="white")
         return
 
-    for team, color in [(home_name, home_color), (away_name, away_color)]:
-        if team_col:
-            sub = shotmap_df[shotmap_df[team_col].astype(str).str.contains(team, case=False, na=False)]
-        else:
-            sub = shotmap_df  # sin columna de equipo, ploteamos todo junto
+    if team_col:
+        # El valor de team_col puede ser texto ("Sarmiento", "home") o numérico
+        # (1/2, competitorNum) — no asumimos formato, solo tomamos los valores
+        # únicos y les asignamos color local/visitante en orden.
+        unique_teams = sorted(shotmap_df[team_col].dropna().unique(), key=str)
+        color_by_team = {}
+        if len(unique_teams) >= 1:
+            color_by_team[unique_teams[0]] = home_color
+        if len(unique_teams) >= 2:
+            color_by_team[unique_teams[1]] = away_color
 
-        sizes = (sub[xg_col] * 400 + 40) if xg_col else 80
-        ax.scatter(sub[x_col], sub[y_col], s=sizes, color=color, alpha=0.7, edgecolors="white", linewidths=0.5)
+        for team_value, color in color_by_team.items():
+            sub = shotmap_df[shotmap_df[team_col] == team_value]
+            sizes = (sub[xg_col] * 400 + 40) if xg_col else 80
+            ax.scatter(sub[x_col], sub[y_col], s=sizes, color=color, alpha=0.7, edgecolors="white", linewidths=0.5)
+    else:
+        sizes = (shotmap_df[xg_col] * 400 + 40) if xg_col else 80
+        ax.scatter(shotmap_df[x_col], shotmap_df[y_col], s=sizes, color=home_color,
+                   alpha=0.7, edgecolors="white", linewidths=0.5)
 
     ax.set_title("Mapa de tiros", color="white")
 
@@ -336,7 +347,7 @@ def build_365_report(match_url):
     # Shotmap normalizado
     ax_shot = fig.add_subplot(gs[0, 0:2])
     plot_shotmap(ax_shot, normalized if normalized is not None else shotmap,
-                 ["teamname", "team"], home_name, away_name)
+                 ["competitornum", "teamname", "team", "side"], home_name, away_name)
 
     # Panel central: resumen tiros/xG/xGOT por equipo (como el panel del PDF)
     ax_summary = fig.add_subplot(gs[0, 2])
@@ -344,10 +355,20 @@ def build_365_report(match_url):
     ax_summary.axis("off")
     ax_summary.set_title("Remates", color="white")
     if summary:
+        # La clave de "summary" puede ser 1/2, "home"/"away", etc. según qué
+        # columna se haya usado como equipo — la mapeamos a los nombres que
+        # puso el usuario, asumiendo que el primer valor (orden ascendente/
+        # alfabético) es el local. Si no coincide, es fácil de ajustar acá.
+        raw_keys = sorted(summary.keys(), key=str)
+        name_map = {}
+        if len(raw_keys) == 2:
+            name_map = {raw_keys[0]: home_name, raw_keys[1]: away_name}
+
         y = 0.9
-        for team, s in summary.items():
-            color = home_color if team == home_name or list(summary).index(team) == 0 else away_color
-            ax_summary.text(0.5, y, f"{team}", color=color, fontsize=12, fontweight="bold",
+        for i, (team, s) in enumerate(summary.items()):
+            label = name_map.get(team, str(team))
+            color = home_color if i == 0 else away_color
+            ax_summary.text(0.5, y, label, color=color, fontsize=12, fontweight="bold",
                              ha="center", transform=ax_summary.transAxes)
             y -= 0.08
             for k, v in s.items():
