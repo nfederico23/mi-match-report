@@ -31,6 +31,37 @@ SHOTTYPE_TO_OPTA = {
 }
 
 
+def _resolve_team_column(df, cols_map, team_col):
+    """
+    Elige la columna que identifica al equipo. Si el usuario no especifica una,
+    probamos varios nombres candidatos y nos quedamos con el primero que tenga
+    2 (o pocos) valores distintos — porque un partido siempre tiene 2 equipos.
+
+    Esto evita el bug de confiar ciegamente en el nombre de columna: en la
+    práctica vimos que "side" en el shotmap real de 365Scores NO es home/away,
+    tiene un valor distinto por cada tiro (parece ser algo tipo minuto/tiempo).
+    "competitorNum" sí resultó ser 1/2 (el equipo real).
+    """
+    candidates = [team_col] if team_col else ["competitorNum", "teamName", "team", "team_name", "side"]
+    present = [cols_map[c.lower()] for c in candidates if c and c.lower() in cols_map]
+
+    if not present:
+        raise KeyError(
+            f"No encontré ninguna columna de equipo entre {candidates} en el shotmap. "
+            f"Columnas disponibles: {list(df.columns)}"
+        )
+
+    # Preferimos la primera columna presente cuya cantidad de valores distintos
+    # sea razonable para "equipo" (1, 2, o 3 por las dudas de datos incompletos).
+    for col in present:
+        if df[col].nunique(dropna=True) <= 3:
+            return col
+
+    # Si ninguna cumple, devolvemos la primera igual — mejor eso que romper,
+    # aunque el resultado probablemente no agrupe bien por equipo.
+    return present[0]
+
+
 def normalize_shotmap(shots_df, outcome_col="shot_outcome", team_col=None):
     """
     Toma el shotmap crudo de 365Scores y devuelve:
@@ -40,10 +71,8 @@ def normalize_shotmap(shots_df, outcome_col="shot_outcome", team_col=None):
     Replica la secuencia que se ve en tu log:
         shot_outcome (es) -> shotType (corto) -> type (estilo Opta) -> groupby
 
-    team_col=None (default): probamos varios nombres posibles, porque el
-    shotmap real de 365Scores vía LanusStats NO trae "teamName" — trae "side"
-    (home/away) o "competitorNum" (1/2). Si tu versión de LanusStats devuelve
-    otra cosa, pasá el nombre exacto acá.
+    team_col=None (default): se resuelve automáticamente por cardinalidad —
+    ver _resolve_team_column().
     """
     df = shots_df.copy()
     cols_map = {c.lower(): c for c in df.columns}
@@ -55,15 +84,7 @@ def normalize_shotmap(shots_df, outcome_col="shot_outcome", team_col=None):
             f"Columnas disponibles: {list(df.columns)}"
         )
     outcome_col = resolved_outcome
-
-    team_candidates = [team_col] if team_col else ["teamName", "team", "team_name", "side", "competitorNum"]
-    resolved_team = next((cols_map[c.lower()] for c in team_candidates if c and c.lower() in cols_map), None)
-    if resolved_team is None:
-        raise KeyError(
-            f"No encontré ninguna columna de equipo entre {team_candidates} en el shotmap. "
-            f"Columnas disponibles: {list(df.columns)}"
-        )
-    team_col = resolved_team
+    team_col = _resolve_team_column(df, cols_map, team_col)
 
     df["shotType"] = df[outcome_col].map(OUTCOME_TO_SHOTTYPE)
     df["type"] = df["shotType"].map(SHOTTYPE_TO_OPTA)
@@ -96,15 +117,7 @@ def team_shot_summary(shots_df, team_col=None, xg_col="xg", xgot_col="xgot"):
     xg_col = cols.get(xg_col.lower())
     xgot_col = cols.get(xgot_col.lower())
     shottype_col = "shotType" if "shotType" in df.columns else None
-
-    team_candidates = [team_col] if team_col else ["teamName", "team", "team_name", "side", "competitorNum"]
-    resolved_team = next((cols[c.lower()] for c in team_candidates if c and c.lower() in cols), None)
-    if resolved_team is None:
-        raise KeyError(
-            f"No encontré ninguna columna de equipo entre {team_candidates}. "
-            f"Columnas disponibles: {list(df.columns)}"
-        )
-    team_col = resolved_team
+    team_col = _resolve_team_column(df, cols, team_col)
 
     summary = {}
     for team, sub in df.groupby(team_col):
