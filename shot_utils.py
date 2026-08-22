@@ -31,7 +31,7 @@ SHOTTYPE_TO_OPTA = {
 }
 
 
-def normalize_shotmap(shots_df, outcome_col="shot_outcome", team_col="teamName"):
+def normalize_shotmap(shots_df, outcome_col="shot_outcome", team_col=None):
     """
     Toma el shotmap crudo de 365Scores y devuelve:
       - shots_df con columnas shotType / type agregadas
@@ -39,26 +39,31 @@ def normalize_shotmap(shots_df, outcome_col="shot_outcome", team_col="teamName")
 
     Replica la secuencia que se ve en tu log:
         shot_outcome (es) -> shotType (corto) -> type (estilo Opta) -> groupby
+
+    team_col=None (default): probamos varios nombres posibles, porque el
+    shotmap real de 365Scores vía LanusStats NO trae "teamName" — trae "side"
+    (home/away) o "competitorNum" (1/2). Si tu versión de LanusStats devuelve
+    otra cosa, pasá el nombre exacto acá.
     """
     df = shots_df.copy()
-
-    # Resolvemos los nombres de columna sin importar mayúsculas/minúsculas —
-    # 365Scores puede devolver "teamName", "team_name", "TeamName", etc.
     cols_map = {c.lower(): c for c in df.columns}
-    resolved_outcome = cols_map.get(outcome_col.lower())
-    resolved_team = cols_map.get(team_col.lower())
 
+    resolved_outcome = cols_map.get(outcome_col.lower())
     if resolved_outcome is None:
         raise KeyError(
             f"No encontré la columna '{outcome_col}' en el shotmap. "
             f"Columnas disponibles: {list(df.columns)}"
         )
+    outcome_col = resolved_outcome
+
+    team_candidates = [team_col] if team_col else ["teamName", "team", "team_name", "side", "competitorNum"]
+    resolved_team = next((cols_map[c.lower()] for c in team_candidates if c and c.lower() in cols_map), None)
     if resolved_team is None:
         raise KeyError(
-            f"No encontré la columna '{team_col}' en el shotmap. "
+            f"No encontré ninguna columna de equipo entre {team_candidates} en el shotmap. "
             f"Columnas disponibles: {list(df.columns)}"
         )
-    outcome_col, team_col = resolved_outcome, resolved_team
+    team_col = resolved_team
 
     df["shotType"] = df[outcome_col].map(OUTCOME_TO_SHOTTYPE)
     df["type"] = df["shotType"].map(SHOTTYPE_TO_OPTA)
@@ -84,13 +89,22 @@ def normalize_shotmap(shots_df, outcome_col="shot_outcome", team_col="teamName")
     return df, grouped
 
 
-def team_shot_summary(shots_df, team_col="teamName", xg_col="xg", xgot_col="xgot"):
+def team_shot_summary(shots_df, team_col=None, xg_col="xg", xgot_col="xgot"):
     """Totales por equipo: tiros, tiros al arco, xG, xGOT — como el panel central del reporte."""
     df = shots_df.copy()
     cols = {c.lower(): c for c in df.columns}
     xg_col = cols.get(xg_col.lower())
     xgot_col = cols.get(xgot_col.lower())
     shottype_col = "shotType" if "shotType" in df.columns else None
+
+    team_candidates = [team_col] if team_col else ["teamName", "team", "team_name", "side", "competitorNum"]
+    resolved_team = next((cols[c.lower()] for c in team_candidates if c and c.lower() in cols), None)
+    if resolved_team is None:
+        raise KeyError(
+            f"No encontré ninguna columna de equipo entre {team_candidates}. "
+            f"Columnas disponibles: {list(df.columns)}"
+        )
+    team_col = resolved_team
 
     summary = {}
     for team, sub in df.groupby(team_col):
@@ -117,6 +131,13 @@ def convert_goalmouth_to_plot(df, y_col="goalMouthY", z_col="goalMouthZ"):
     en tu log (ej. goalMouthY=52.0 -> goalMouthY_plot=35.78), no del código
     original. Si los valores no calzan visualmente al probarlo, es el primer
     lugar para ajustar la fórmula.
+
+    IMPORTANTE: el shotmap real que devuelve get_match_shotmap() de LanusStats
+    (365Scores) NO trae columnas goalMouthY/goalMouthZ — esas se calculaban en
+    el notebook original con datos extra que no tenemos. Por ahora el panel de
+    "Goles y atajadas" en app.py va a mostrar "Sin datos de arco" hasta que
+    consigamos de dónde sacar esas coordenadas (o las derivemos de x/y/z, que
+    sí están disponibles).
     """
     df = df.copy()
     # Del log: rango observado de goalMouthY ~ [45.9, 53.6] -> goalMouthY_plot ~ [22.4, 86.8]
